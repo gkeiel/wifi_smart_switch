@@ -281,9 +281,9 @@ void loop() {
     flag_i = false;
     count ++;
 
-    if (!client_telegram.connected()) client_telegram.connect("api.telegram.org", 443);
     if (count >= 5){
       count = 0;
+      if (!client_telegram.connected()) client_telegram.connect("api.telegram.org", 443);
 
       // ===== CHECK TIMERS =====
       checkTimer(timer1_off_active, timer1_off, timer1_off_target, disableRelay1, "Timer 1 OFF finished");

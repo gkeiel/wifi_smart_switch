@@ -35,6 +35,7 @@ uint8_t t_s = 100;
 String chat_id  = "";
 String IP = "";
 String last_cmd;
+String last_msg;
 Ticker timer;
 
 // Telegram client
@@ -127,9 +128,9 @@ void check_telegram(){
     if (!flag_ip) { bot.sendMessage(chat_id, "WiFi connected IP " +IP, ""); flag_ip = true; }
     if (cmd == "SET T1 ON" || cmd == "SET T1 OFF" || cmd == "SET T2 ON" || cmd == "SET T2 OFF") { bot.sendMessage(chat_id, "Provide time in hh:mm", ""); last_cmd = cmd; continue; }
     if (last_cmd.length() > 0) { cmd = last_cmd +" " +cmd; last_cmd = ""; }
-
     handleCommand(cmd);
   }
+  if (last_msg.length() > 0) { bot.sendMessage(chat_id, last_msg, ""); last_msg = ""; }
 }
 
 
@@ -224,14 +225,13 @@ void handleCommand(String cmd) {
 // --------------------------
 // Relays
 // --------------------------
-void activateRelay1() { digitalWrite(RELAY_1, LOW); bot.sendMessage(chat_id, "Relay 1 ON", ""); }
-void activateRelay2() { digitalWrite(RELAY_2, LOW); bot.sendMessage(chat_id, "Relay 2 ON", ""); }
-void disableRelay1() { digitalWrite(RELAY_1, HIGH); bot.sendMessage(chat_id, "Relay 1 OFF", ""); }
-void disableRelay2() { digitalWrite(RELAY_2, HIGH); bot.sendMessage(chat_id, "Relay 2 OFF", ""); }
+void activateRelay1() { digitalWrite(RELAY_1, LOW); last_msg = "Relay 1 ON"; }
+void activateRelay2() { digitalWrite(RELAY_2, LOW); last_msg = "Relay 2 ON"; }
+void disableRelay1() { digitalWrite(RELAY_1, HIGH); last_msg = "Relay 1 OFF"; }
+void disableRelay2() { digitalWrite(RELAY_2, HIGH); last_msg = "Relay 2 OFF"; }
 String statusRelays() {
   String msg = "Relay 1 " +String(digitalRead(RELAY_1) == LOW ? "ON" : "OFF") +" | Timer ON at " +formatTime(timer1_on_target) +" | Timer OFF at "+formatTime(timer1_off_target);
   msg     += "\nRelay 2 " +String(digitalRead(RELAY_2) == LOW ? "ON" : "OFF") +" | Timer ON at " +formatTime(timer2_on_target) +" | Timer OFF at "+formatTime(timer2_off_target);
-  bot.sendMessage(chat_id, msg, "");
   return msg;
 }
 
@@ -349,11 +349,11 @@ void loop() {
     flag_i = false;
     count ++;
 
-    if (!mqtt.connected()) reconnectMQTT();
-    if (!client_telegram.connected()) client_telegram.connect("api.telegram.org", 443);
     if (count >= 5){
       count = 0;
-
+      if (!mqtt.connected()) reconnectMQTT();
+      if (!client_telegram.connected()) client_telegram.connect("api.telegram.org", 443);
+      
       // ===== CHECK TIMERS =====
       checkTimer(timer1_off_active, timer1_off, timer1_off_target, disableRelay1, "Timer 1 OFF finished");
       checkTimer(timer2_off_active, timer2_off, timer2_off_target, disableRelay2, "Timer 2 OFF finished");
