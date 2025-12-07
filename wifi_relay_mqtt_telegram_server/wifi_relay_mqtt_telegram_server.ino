@@ -4,10 +4,12 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <UniversalTelegramBot.h>
+#include <ESP8266WebServer.h>
 #include <Ticker.h>
 #include <time.h>
 #include <EEPROM.h>
 #include "secrets.h"
+#include "html_page.h"
 #define RELAY_1 D5
 #define RELAY_2 D6
 #define EEPROM_ADDR 0
@@ -42,6 +44,30 @@ UniversalTelegramBot bot(BOT_TOKEN, client_telegram);
 // MQTT client
 WiFiClientSecure client_mqtt;
 PubSubClient mqtt(client_mqtt);
+
+// WebServer
+ESP8266WebServer server(80);
+
+
+
+// --------------------------
+// webserver
+// --------------------------
+void handleRoot(){
+  server.send_P(200, "text/html", HTML_page);
+}
+
+void handleWebCommand() {
+  String cmd = server.arg("c");
+
+  if (cmd == "STATUS") {
+    server.send(200, "text/plain", statusRelays());
+    return;
+  }
+
+  handleCommand(cmd);
+  server.send(200, "text/plain", "OK");
+}
 
 
 
@@ -198,30 +224,15 @@ void handleCommand(String cmd) {
 // --------------------------
 // Relays
 // --------------------------
-void activateRelay1() {
-  digitalWrite(RELAY_1, LOW);
-  bot.sendMessage(chat_id, "Relay 1 ON", "");
-}
-
-void activateRelay2() {
-  digitalWrite(RELAY_2, LOW);
-  bot.sendMessage(chat_id, "Relay 2 ON", "");
-}
-
-void disableRelay1() {
-  digitalWrite(RELAY_1, HIGH);
-  bot.sendMessage(chat_id, "Relay 1 OFF", "");
-}
-
-void disableRelay2() {
-  digitalWrite(RELAY_2, HIGH);
-  bot.sendMessage(chat_id, "Relay 2 OFF", "");
-}
-
-void statusRelays() {
+void activateRelay1() { digitalWrite(RELAY_1, LOW); bot.sendMessage(chat_id, "Relay 1 ON", ""); }
+void activateRelay2() { digitalWrite(RELAY_2, LOW); bot.sendMessage(chat_id, "Relay 2 ON", ""); }
+void disableRelay1() { digitalWrite(RELAY_1, HIGH); bot.sendMessage(chat_id, "Relay 1 OFF", ""); }
+void disableRelay2() { digitalWrite(RELAY_2, HIGH); bot.sendMessage(chat_id, "Relay 2 OFF", ""); }
+String statusRelays() {
   String msg = "Relay 1 " +String(digitalRead(RELAY_1) == LOW ? "ON" : "OFF") +" | Timer ON at " +formatTime(timer1_on_target) +" | Timer OFF at "+formatTime(timer1_off_target);
   msg     += "\nRelay 2 " +String(digitalRead(RELAY_2) == LOW ? "ON" : "OFF") +" | Timer ON at " +formatTime(timer2_on_target) +" | Timer OFF at "+formatTime(timer2_off_target);
   bot.sendMessage(chat_id, msg, "");
+  return msg;
 }
 
 
@@ -301,13 +312,19 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED){
     delay(1000);
   }
-  Serial.println("[WiFi] Connected. ✔");
   IP = WiFi.localIP().toString();
-
+  Serial.println("[WiFi] Connected IP " +IP +".✔");
+  
   // MQTT client secure
   client_mqtt.setInsecure();
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(check_mqtt);
+
+  // webserver
+  server.on("/", handleRoot);
+  server.on("/cmd", handleWebCommand);
+  server.begin();
+  Serial.println("[WebServer] Started. ✔");
 
   // Telegram client
   client_telegram.setInsecure();
@@ -326,6 +343,7 @@ void setup() {
 
 void loop() {
   mqtt.loop();
+  server.handleClient();
 
   if (flag_i) {
     flag_i = false;
