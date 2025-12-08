@@ -118,6 +118,7 @@ void send_ReplyKeyboard() {
 
 void check_telegram(){
   uint8_t num = bot.getUpdates(bot.last_message_received +1);
+  if (last_msg.length() > 0) { bot.sendMessage(chat_id, last_msg, ""); last_msg = ""; }
   if (num == 0) return;
   
   for (uint8_t i = 0; i < num; i++) {
@@ -130,7 +131,6 @@ void check_telegram(){
     if (last_cmd.length() > 0) { cmd = last_cmd +" " +cmd; last_cmd = ""; }
     handleCommand(cmd);
   }
-  if (last_msg.length() > 0) { bot.sendMessage(chat_id, last_msg, ""); last_msg = ""; }
 }
 
 
@@ -232,6 +232,7 @@ void disableRelay2() { digitalWrite(RELAY_2, HIGH); last_msg = "Relay 2 OFF"; }
 String statusRelays() {
   String msg = "Relay 1 " +String(digitalRead(RELAY_1) == LOW ? "ON" : "OFF") +" | Timer ON at " +formatTime(timer1_on_target) +" | Timer OFF at "+formatTime(timer1_off_target);
   msg     += "\nRelay 2 " +String(digitalRead(RELAY_2) == LOW ? "ON" : "OFF") +" | Timer ON at " +formatTime(timer2_on_target) +" | Timer OFF at "+formatTime(timer2_off_target);
+  last_msg = msg;
   return msg;
 }
 
