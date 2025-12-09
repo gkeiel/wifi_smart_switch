@@ -23,10 +23,6 @@ bool timer2_off_active = false;
 bool randomize_enabled = false;
 bool daily_random_done = false;
 volatile uint32_t clock_sec = 0;
-uint32_t timer1_on = 0;
-uint32_t timer2_on = 0;
-uint32_t timer1_off = 0;
-uint32_t timer2_off = 0;
 uint32_t timer1_off_target = 0;
 uint32_t timer2_off_target = 0;
 uint32_t timer1_on_target = 0;
@@ -102,7 +98,11 @@ void publishStatus() {
   msg += "\"t2_on\":\""  +formatTime(timer2_on_target)  +"\",";
   msg += "\"t1_off\":\"" +formatTime(timer1_off_target) +"\",";
   msg += "\"t2_off\":\"" +formatTime(timer2_off_target) +"\"";
-  if (randomize_enabled) {
+  msg += ",\"timer1_on_active\":"  +String(timer1_on_active ? 1 : 0);
+  msg += ",\"timer1_off_active\":" +String(timer1_off_active ? 1 : 0);
+  msg += ",\"timer2_on_active\":"  +String(timer2_on_active ? 1 : 0);
+  msg += ",\"timer2_off_active\":" +String(timer2_off_active ? 1 : 0);
+  if (randomize_enabled && daily_random_done) {
     msg += ",\"t1_on_random\":\""  +formatTime(timer1_on_random)  +"\",";
     msg += "\"t1_off_random\":\"" +formatTime(timer1_off_random) +"\",";
     msg += "\"t2_on_random\":\""  +formatTime(timer2_on_random)  +"\",";
@@ -124,7 +124,7 @@ void check_mqtt(char* topic, byte* payload, unsigned int length) {
 // Telegram
 // --------------------------
 void send_ReplyKeyboard() {
-  String keyboard ="[[\"POWER ON 1\",\"POWER ON 2\"],[\"SET T1 ON\",\"SET T2 ON\"],[\"SET T1 OFF\",\"SET T2 OFF\"],[\"POWER OFF 1\",\"POWER OFF 2\"],[\"RANDOM ON\",\"RANDOM OFF\"],[\"STATUS\"]]";
+  String keyboard ="[[\"POWER ON 1\",\"POWER ON 2\"],[\"POWER OFF 1\",\"POWER OFF 2\"],[\"SET T1\",\"SET T2\"],[\"TOOGLE T1\",\"TOOGLE T2\"],[\"RANDOM ON\",\"RANDOM OFF\"],[\"STATUS\"]]";
   bot.sendMessageWithReplyKeyboard(chat_id, "Control panel", "", keyboard, true, false, false);
 }
 
@@ -139,7 +139,9 @@ void check_telegram(){
 
     if (cmd == "/start") send_ReplyKeyboard();
     if (!flag_ip) { bot.sendMessage(chat_id, "WiFi connected IP " +IP, ""); flag_ip = true; }
-    if (cmd == "SET T1 ON" || cmd == "SET T1 OFF" || cmd == "SET T2 ON" || cmd == "SET T2 OFF") { bot.sendMessage(chat_id, "Provide time in hh:mm", ""); last_cmd = cmd; continue; }
+    if (last_cmd == "SET T1 ON") { bot.sendMessage(chat_id, "Provide stop time in hh:mm", ""); last_cmd = "SET T1 OFF"; continue; }
+    if (last_cmd == "SET T2 ON") { bot.sendMessage(chat_id, "Provide stop time in hh:mm", ""); last_cmd = "SET T2 OFF"; continue; }
+    if (cmd == "SET T1" || cmd == "SET T2") { bot.sendMessage(chat_id, "Provide start time in hh:mm", ""); last_cmd = cmd +" ON"; continue; }
     if (last_cmd.length() > 0) { cmd = last_cmd +" " +cmd; last_cmd = ""; }
     handleCommand(cmd);
   }
@@ -150,21 +152,20 @@ void check_telegram(){
 // --------------------------
 // Timers
 // --------------------------
-void setTimer(bool &active, uint32_t &timer_sec, uint32_t &target, uint32_t amount_sec, void (*action)()) {
-  timer_sec = amount_sec;
+void setTimer(bool &active, uint32_t &target, uint32_t amount_sec) {
   target    = amount_sec;
   active = true;
   saveTargets();
   statusRelays();
 }
 
-void stopTimer(bool &active, uint32_t &timer_sec, const char* msg) {
-  timer_sec = 0;
+void stopTimer(bool &active) {
   active    = false;
   saveTargets();
+  statusRelays();
 }
 
-void checkTimer(bool &active, uint32_t &timer_sec, uint32_t &target, void (*action)(), const char* msg) {
+void checkTimer(bool &active, uint32_t &target, void (*action)(), const char* msg) {
   if (!active) return;
 
   uint32_t realTarget = target;
@@ -180,9 +181,11 @@ void checkTimer(bool &active, uint32_t &timer_sec, uint32_t &target, void (*acti
   }
 }
 
-uint32_t randomBetween(uint32_t a, uint32_t b) {
+uint32_t randomBetween(int32_t a, int32_t b) {
+  if (a < 0) a = 0;
+  if (b > 86399) b = 86399;
   if (b <= a) return a;  
-  return a +(rand()%(b -a));
+  return random(a, b);
 }
 
 void randomizeTimer() {
@@ -190,12 +193,12 @@ void randomizeTimer() {
   if (daily_random_done) return;
 
   if (timer1_on_target && timer1_off_target) {
-    timer1_on_random  = randomBetween(timer1_on_target, timer1_off_target -60);
-    timer1_off_random = randomBetween(timer1_on_random +60, timer1_off_target);
+    timer1_on_random  = randomBetween(timer1_on_target, timer1_on_target+3600);
+    timer1_off_random = randomBetween(timer1_off_target-3600, timer1_off_target);
   }
   if (timer2_on_target && timer2_off_target) {
-    timer2_on_random  = randomBetween(timer2_on_target, timer2_off_target -60);
-    timer2_off_random = randomBetween(timer2_on_random +60, timer2_off_target);
+    timer2_on_random  = randomBetween(timer2_on_target, timer2_off_target+3600);
+    timer2_off_random = randomBetween(timer2_on_random-3600, timer2_off_target);
   }
   daily_random_done = true;
 }
@@ -246,19 +249,25 @@ void handleCommand(String cmd) {
 
     uint32_t sec;
     if (!parseHHMM(hm, sec)) return;
-    if (timer=="T1" && mode=="ON")  setTimer(timer1_on_active, timer1_on, timer1_on_target, sec, activateRelay1);
-    if (timer=="T1" && mode=="OFF") setTimer(timer1_off_active, timer1_off, timer1_off_target, sec, disableRelay1);
-    if (timer=="T2" && mode=="ON")  setTimer(timer2_on_active, timer2_on, timer2_on_target, sec, activateRelay2);
-    if (timer=="T2" && mode=="OFF") setTimer(timer2_off_active, timer2_off, timer2_off_target, sec, disableRelay2);
+    if (timer=="T1" && mode=="ON") setTimer(timer1_on_active, timer1_on_target, sec);
+    if (timer=="T1" && mode=="OFF") setTimer(timer1_off_active, timer1_off_target, sec);
+    if (timer=="T2" && mode=="ON") setTimer(timer2_on_active, timer2_on_target, sec);
+    if (timer=="T2" && mode=="OFF") setTimer(timer2_off_active, timer2_off_target, sec);
   }
 
   // ====== STOP TIMERS ======
-  if (cmd == "STOP T1 ON")  stopTimer(timer1_on_active, timer1_on, "Timer 1 ON stopped");
-  if (cmd == "STOP T1 OFF") stopTimer(timer1_off_active, timer1_off, "Timer 1 OFF stopped");
-  if (cmd == "STOP T2 ON")  stopTimer(timer2_on_active, timer2_on, "Timer 2 ON stopped");
-  if (cmd == "STOP T2 OFF") stopTimer(timer2_off_active, timer2_off, "Timer 2 OFF stopped");
-  if (cmd == "RANDOM ON")  { randomize_enabled = true;  last_msg = "Random mode enabled";  return; }
-  if (cmd == "RANDOM OFF") { randomize_enabled = false; last_msg = "Random mode disabled"; return; }
+  if (cmd == "TOOGLE T1"){
+    bool anyActive = timer1_on_active || timer1_off_active;
+    if (anyActive){ stopTimer(timer1_on_active); stopTimer(timer1_off_active); statusRelays(); }
+    else { timer1_on_active  = (timer1_on_target > 0); timer1_off_active = (timer1_off_target > 0); daily_random_done = false; statusRelays(); }
+  }
+  if (cmd == "TOOGLE T2"){
+    bool anyActive = timer2_on_active || timer2_off_active;
+    if (anyActive){ stopTimer(timer2_on_active); stopTimer(timer2_off_active); statusRelays(); }
+    else { timer2_on_active  = (timer2_on_target > 0); timer2_off_active = (timer2_off_target > 0); daily_random_done = false; statusRelays(); }
+  }
+  if (cmd == "RANDOM ON")  { randomize_enabled = true;  statusRelays(); return; }
+  if (cmd == "RANDOM OFF") { randomize_enabled = false; daily_random_done = false; statusRelays(); return; }
   publishStatus();
 }
 
@@ -273,9 +282,9 @@ void disableRelay1() { digitalWrite(RELAY_1, HIGH); last_msg = "Relay 1 OFF"; }
 void disableRelay2() { digitalWrite(RELAY_2, HIGH); last_msg = "Relay 2 OFF"; }
 String statusRelays() {
   String msg;
-  msg  = "Relay 1 "   +String(digitalRead(RELAY_1) == LOW ? "ON" : "OFF") +" | Timer 1 " +formatTime(timer1_on_target) +"-" +formatTime(timer1_off_target);
+  msg  = "Relay 1 "   +String(digitalRead(RELAY_1) == LOW ? "ON" : "OFF") +" | Timer 1 " +String((timer1_on_active || timer1_off_active) ? "ON " : "OFF ") +formatTime(timer1_on_target) +"-" +formatTime(timer1_off_target);
   if (randomize_enabled && daily_random_done) { msg += " | Random " +formatTime(timer1_on_random) +"-" +formatTime(timer1_off_random); }
-  msg += "\nRelay 2 " +String(digitalRead(RELAY_2) == LOW ? "ON" : "OFF") +" | Timer 2 " +formatTime(timer2_on_target) +"-" +formatTime(timer2_off_target);
+  msg += "\nRelay 2 " +String(digitalRead(RELAY_2) == LOW ? "ON" : "OFF") +" | Timer 2 " +String((timer2_on_active || timer2_off_active) ? "ON " : "OFF ") +formatTime(timer2_on_target) +"-" +formatTime(timer2_off_target);
   if (randomize_enabled && daily_random_done) { msg += " | Random " +formatTime(timer2_on_random) +"-" +formatTime(timer2_off_random); }
   last_msg = msg;
   return msg;
@@ -402,10 +411,10 @@ void loop() {
       if (!daily_random_done) randomizeTimer();
 
       // ===== CHECK TIMERS =====
-      checkTimer(timer1_off_active, timer1_off, timer1_off_target, disableRelay1, "Timer 1 OFF finished");
-      checkTimer(timer2_off_active, timer2_off, timer2_off_target, disableRelay2, "Timer 2 OFF finished");
-      checkTimer(timer1_on_active, timer1_on, timer1_on_target, activateRelay1, "Timer 1 ON finished");
-      checkTimer(timer2_on_active, timer2_on, timer2_on_target, activateRelay2, "Timer 2 ON finished");
+      checkTimer(timer1_off_active, timer1_off_target, disableRelay1, "Timer 1 OFF finished");
+      checkTimer(timer2_off_active, timer2_off_target, disableRelay2, "Timer 2 OFF finished");
+      checkTimer(timer1_on_active, timer1_on_target, activateRelay1, "Timer 1 ON finished");
+      checkTimer(timer2_on_active, timer2_on_target, activateRelay2, "Timer 2 ON finished");
 
       check_telegram();
     }

@@ -45,20 +45,19 @@ const char HTML_page[] PROGMEM = R"=====(
 
 <h3>Timers control</h3>
 <select id="timerSelector">
-  <option value="T1 ON">Timer 1 ON</option>
-  <option value="T1 OFF">Timer 1 OFF</option>
-  <option value="T2 ON">Timer 2 ON</option>
-  <option value="T2 OFF">Timer 2 OFF</option>
+  <option value="T1">Timer 1</option>
+  <option value="T2">Timer 2</option>
 </select>
 <br><br>
-<input id="timerInput" type="text" placeholder="hh:mm" maxlength="5" oninput="validateTime(this)">
+<input id="timeOn"  type="text" placeholder="Start hh:mm" maxlength="5" oninput="validateTime(this)">
+<br><br>
+<input id="timeOff" type="text" placeholder="Stop hh:mm" maxlength="5" oninput="validateTime(this)">
 <br><br>
 <button class="btn" onclick="setTimer()">SET</button>
-<button class="btn" onclick="stopTimer()">STOP</button><br>
+<button class="btn" onclick="stopTimer()">TOOGLE</button><br>
 <button class="btn" onclick="sendLocal('RANDOM ON')">Random ON</button>
-<button class="btn" onclick="sendLocal('RANDOM OFF')">Random OFF</button>
+<button class="btn" onclick="sendLocal('RANDOM OFF')">Random OFF</button><br>
 <div id="statusBox">STATUS:</div><br>
-<div id="timersBox">TIMERS:</div>
 
 <script>
   function validateTime(input) {
@@ -82,21 +81,19 @@ const char HTML_page[] PROGMEM = R"=====(
   // Timer commands
   // -----------------------------------------------
   function setTimer() {
-    const type = document.getElementById("timerSelector").value;
-    const time = document.getElementById("timerInput").value;
+    const timer = document.getElementById("timerSelector").value;
+    const timer_on  = document.getElementById("timeOn").value;
+    const timer_off = document.getElementById("timeOff").value
 
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-      alert("Invalid format.");
-      return;
-    }
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timer_on)) { alert("Invalid format."); return; }
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timer_off)) { alert("Invalid format."); return; }
 
-    const cmd = "SET " + type + " " + time;
-    sendLocal(cmd);
+    sendLocal("SET " +timer +" ON " +timer_on);
+    send("SET " +timer +" OFF " +timer_off);
   }
   function stopTimer() {
-    const type = document.getElementById("timerSelector").value;
-    const cmd = "STOP " +type;
-    sendLocal(cmd);
+    const timer = document.getElementById("timerSelector").value;
+    sendLocal("TOOGLE " +timer);
   }
 
   // -----------------------------------------------
@@ -106,10 +103,7 @@ const char HTML_page[] PROGMEM = R"=====(
     fetch('/cmd?c=STATUS')
       .then(r => r.text())
       .then(txt => {
-
-      // STATUS
       document.getElementById("statusBox").innerText = txt;
-      document.getElementById("timersBox").innerText = "";
     });
   }
   setInterval(pollStatus, 2000);
