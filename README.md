@@ -1,6 +1,6 @@
 # WiFi smart switch
 
-An IoT **smart-switch project that allow remote activation of 2 relay channels with redundancy through different interface solutions. It provides a WiFi connection acessible through: **Telegram bot** commands, HTML plus **Message Queuing Telemetry Transport (MQTT) Broker** or local **webserver**.
+An IoT **smart switch** project that allow remote activation of 2 relay channels with redundancy through different interface solutions. It provides a WiFi connection acessible through: **Telegram bot** commands, HTML plus **Message Queuing Telemetry Transport (MQTT) Broker** or local **webserver**.
 
 The following programs are available:
 - [WiFi relay - Telegram](./wifi_relay_telegram)
@@ -16,7 +16,7 @@ The physical experiment is presented bellow:
 <img width="500" height="395" alt="dc_motor_data_pid" src="https://github.com/user-attachments/assets/1827a471-b4b9-4613-8f13-e94df5b0988c"/>
 </p>
 
-The MQTT panel and also local HTML interface:
+The HTML page for local and MQTT commands:
 <p align="center">
 <img width="500" height="700" alt="dc_motor_data_pid" src="https://github.com/user-attachments/assets/2e39654b-1670-441f-b32a-12a9cbda2a8e"/>
 </p>

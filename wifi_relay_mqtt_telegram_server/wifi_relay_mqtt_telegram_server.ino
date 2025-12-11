@@ -65,9 +65,6 @@ void handleWebCommand() {
     server.send(200, "text/plain", statusRelays());
     return;
   }
-
-  handleCommand(cmd);
-  server.send(200, "text/plain", "OK");
 }
 
 
@@ -116,7 +113,7 @@ void send_ReplyKeyboard() {
   bot.sendMessageWithReplyKeyboard(chat_id, "Control panel", "", keyboard, true, false, false);
 }
 
-void check_telegram(){
+void telegram(){
   uint8_t num = bot.getUpdates(bot.last_message_received +1);
   if (last_msg.length() > 0) { bot.sendMessage(chat_id, last_msg, ""); last_msg = ""; }
   if (num == 0) return;
@@ -343,25 +340,29 @@ void setup() {
 }
 
 void loop() {
+  // MQTT
   mqtt.loop();
+
+  // webserver
   server.handleClient();
 
   if (flag_i) {
     flag_i = false;
     count ++;
 
-    if (count >= 5){
+    if (count >= 20){
       count = 0;
       if (!mqtt.connected()) reconnectMQTT();
       if (!client_telegram.connected()) client_telegram.connect("api.telegram.org", 443);
       
-      // ===== CHECK TIMERS =====
+      // check timers
       checkTimer(timer1_off_active, timer1_off, timer1_off_target, disableRelay1, "Timer 1 OFF finished");
       checkTimer(timer2_off_active, timer2_off, timer2_off_target, disableRelay2, "Timer 2 OFF finished");
       checkTimer(timer1_on_active, timer1_on, timer1_on_target, activateRelay1, "Timer 1 ON finished");
       checkTimer(timer2_on_active, timer2_on, timer2_on_target, activateRelay2, "Timer 2 ON finished");
 
-      check_telegram();
+      // telegram
+      telegram();
     }
   }
 }

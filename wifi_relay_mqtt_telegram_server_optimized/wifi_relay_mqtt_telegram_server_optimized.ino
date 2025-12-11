@@ -16,6 +16,7 @@
 
 volatile bool flag_i = false;
 volatile bool flag_ip = false;
+volatile bool flag_status = false;
 bool timer1_on_active = false;
 bool timer2_on_active = false;
 bool timer1_off_active = false;
@@ -37,6 +38,7 @@ uint8_t t_s = 100;
 String chat_id  = "";
 String IP = "";
 String last_cmd;
+String pend_cmd;
 String last_msg;
 Ticker timer;
 
@@ -67,9 +69,6 @@ void handleWebCommand() {
     server.send(200, "text/plain", statusRelays());
     return;
   }
-
-  handleCommand(cmd);
-  server.send(200, "text/plain", "OK");
 }
 
 
@@ -124,11 +123,11 @@ void check_mqtt(char* topic, byte* payload, unsigned int length) {
 // Telegram
 // --------------------------
 void send_ReplyKeyboard() {
-  String keyboard ="[[\"POWER ON 1\",\"POWER ON 2\"],[\"POWER OFF 1\",\"POWER OFF 2\"],[\"SET T1\",\"SET T2\"],[\"TOOGLE T1\",\"TOOGLE T2\"],[\"RANDOM ON\",\"RANDOM OFF\"],[\"STATUS\"]]";
+  String keyboard ="[[\"POWER ON 1\",\"POWER ON 2\"],[\"POWER OFF 1\",\"POWER OFF 2\"],[\"SET T1\",\"SET T2\"],[\"TOOGLE T1\",\"TOOGLE T2\"],[\"TOOGLE RANDOM\",\"STATUS\"]]";
   bot.sendMessageWithReplyKeyboard(chat_id, "Control panel", "", keyboard, true, false, false);
 }
 
-void check_telegram(){
+void telegram(){
   uint8_t num = bot.getUpdates(bot.last_message_received +1);
   if (last_msg.length() > 0) { bot.sendMessage(chat_id, last_msg, ""); last_msg = ""; }
   if (num == 0) return;
@@ -139,10 +138,10 @@ void check_telegram(){
 
     if (cmd == "/start") send_ReplyKeyboard();
     if (!flag_ip) { bot.sendMessage(chat_id, "WiFi connected IP " +IP, ""); flag_ip = true; }
-    if (last_cmd == "SET T1 ON") { bot.sendMessage(chat_id, "Provide stop time in hh:mm", ""); last_cmd = "SET T1 OFF"; continue; }
-    if (last_cmd == "SET T2 ON") { bot.sendMessage(chat_id, "Provide stop time in hh:mm", ""); last_cmd = "SET T2 OFF"; continue; }
-    if (cmd == "SET T1" || cmd == "SET T2") { bot.sendMessage(chat_id, "Provide start time in hh:mm", ""); last_cmd = cmd +" ON"; continue; }
-    if (last_cmd.length() > 0) { cmd = last_cmd +" " +cmd; last_cmd = ""; }
+    if (cmd == "SET T1" || cmd == "SET T2") { bot.sendMessage(chat_id, "Provide start time in hh:mm", ""); last_cmd = cmd +" ON"; }
+    else if (last_cmd.endsWith("ON")) { bot.sendMessage(chat_id, "Provide stop time in hh:mm", ""); pend_cmd = last_cmd +" " +cmd; last_cmd.replace("ON", "OFF"); }    
+    else if (last_cmd.endsWith("OFF")) { pend_cmd = last_cmd + " " + cmd; last_cmd = ""; flag_status = true; }
+    if (pend_cmd.length() > 0) { cmd = pend_cmd; pend_cmd = ""; };
     handleCommand(cmd);
   }
 }
@@ -153,14 +152,14 @@ void check_telegram(){
 // Timers
 // --------------------------
 void setTimer(bool &active, uint32_t &target, uint32_t amount_sec) {
-  target    = amount_sec;
+  target = amount_sec;
   active = true;
   saveTargets();
-  statusRelays();
+  if (flag_status) { flag_status = false; statusRelays(); }
 }
 
 void stopTimer(bool &active) {
-  active    = false;
+  active = false;
   saveTargets();
   statusRelays();
 }
@@ -193,12 +192,14 @@ void randomizeTimer() {
   if (daily_random_done) return;
 
   if (timer1_on_target && timer1_off_target) {
-    timer1_on_random  = randomBetween(timer1_on_target, timer1_on_target+3600);
-    timer1_off_random = randomBetween(timer1_off_target-3600, timer1_off_target);
+    uint32_t delta = min(uint32_t(3600), (timer1_off_target -timer1_on_target)/2);
+    timer1_on_random  = randomBetween(timer1_on_target, timer1_on_target+delta);
+    timer1_off_random = randomBetween(timer1_off_target-delta, timer1_off_target);
   }
   if (timer2_on_target && timer2_off_target) {
-    timer2_on_random  = randomBetween(timer2_on_target, timer2_off_target+3600);
-    timer2_off_random = randomBetween(timer2_on_random-3600, timer2_off_target);
+    uint32_t delta = min(uint32_t(3600), (timer2_off_target -timer2_on_target)/2);
+    timer2_on_random  = randomBetween(timer2_on_target, timer2_on_target+delta);
+    timer2_off_random = randomBetween(timer2_off_target-delta, timer2_off_target);
   }
   daily_random_done = true;
 }
@@ -228,7 +229,7 @@ bool parseHHMM(const String &s, uint32_t &outSec) {
 
 void handleCommand(String cmd) {
   cmd.trim();   
-  
+
   // ====== MAIN CONTROL ======
   if (cmd == "POWER ON 1")  activateRelay1();
   if (cmd == "POWER ON 2")  activateRelay2();
@@ -266,8 +267,12 @@ void handleCommand(String cmd) {
     if (anyActive){ stopTimer(timer2_on_active); stopTimer(timer2_off_active); statusRelays(); }
     else { timer2_on_active  = (timer2_on_target > 0); timer2_off_active = (timer2_off_target > 0); daily_random_done = false; statusRelays(); }
   }
-  if (cmd == "RANDOM ON")  { randomize_enabled = true;  statusRelays(); return; }
-  if (cmd == "RANDOM OFF") { randomize_enabled = false; daily_random_done = false; statusRelays(); return; }
+  if (cmd == "TOOGLE RANDOM"){
+    randomize_enabled = !randomize_enabled;
+    daily_random_done = false;
+    if(randomize_enabled) randomizeTimer();
+    statusRelays();
+  }
   publishStatus();
 }
 
@@ -307,7 +312,7 @@ void syncClock() {
 
   struct tm*t = localtime(&now);
   clock_sec = t->tm_hour*3600 +t->tm_min*60 +t->tm_sec;
-  Serial.println("[Clock] NTP synchronized. ✔");
+  //Serial.println("[Clock] NTP synchronized. ✔");
 }
 
 void ICACHE_RAM_ATTR Timer_ISR() {
@@ -397,26 +402,30 @@ void setup() {
 }
 
 void loop() {
+  // MQTT
   mqtt.loop();
+
+  // webserver
   server.handleClient();
 
   if (flag_i) {
     flag_i = false;
     count ++;
 
-    if (count >= 5){
+    if (count >= 20){
       count = 0;
       if (!mqtt.connected()) reconnectMQTT();
       if (!client_telegram.connected()) client_telegram.connect("api.telegram.org", 443);
       if (!daily_random_done) randomizeTimer();
 
-      // ===== CHECK TIMERS =====
+      // check timers
       checkTimer(timer1_off_active, timer1_off_target, disableRelay1, "Timer 1 OFF finished");
       checkTimer(timer2_off_active, timer2_off_target, disableRelay2, "Timer 2 OFF finished");
       checkTimer(timer1_on_active, timer1_on_target, activateRelay1, "Timer 1 ON finished");
       checkTimer(timer2_on_active, timer2_on_target, activateRelay2, "Timer 2 ON finished");
 
-      check_telegram();
+      // telegram
+      telegram();
     }
   }
 }
